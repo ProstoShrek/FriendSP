@@ -1,5 +1,5 @@
 import { h, icon, toast, modal, confirmDialog, fmtSize, avatar } from './ui.js';
-import { state, api } from './app.js';
+import { state, api, nameTag } from './app.js';
 import { uploadPanel } from './upload.js';
 
 const native = window.native;
@@ -129,7 +129,7 @@ function usersTab(body) {
     body.replaceChildren(h('table', { class: 'table' },
       h('thead', {}, h('tr', {}, h('th', {}, 'Ник'), h('th', {}, 'Роль'), h('th', { class: 'num' }, 'Звуков'), h('th', {}))),
       h('tbody', {}, users.map((u) => h('tr', {},
-        h('td', {}, h('div', { class: 'row' }, avatar(u, { size: 'sm', online: u.online }), h('b', {}, u.username), u.id === state.user.id ? h('span', { class: 'badge' }, 'ты') : null)),
+        h('td', {}, h('div', { class: 'row' }, avatar(u, { size: 'sm', online: u.online }), nameTag(u), u.id === state.user.id ? h('span', { class: 'badge' }, 'ты') : null)),
         h('td', {}, u.isAdmin ? h('span', { class: 'badge accent' }, 'админ') : h('span', { class: 'muted' }, 'участник')),
         h('td', { class: 'num' }, u.sounds),
         h('td', { style: { textAlign: 'right', whiteSpace: 'nowrap' } },

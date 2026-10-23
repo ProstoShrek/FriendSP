@@ -1,7 +1,7 @@
 {
   "name": "soundpad",
   "productName": "SoundPad",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Общий саундпад для друзей с синхронизацией",
   "main": "src/main.js",
   "author": "SoundPad",

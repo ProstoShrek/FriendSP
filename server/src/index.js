@@ -1,5 +1,8 @@
 import http from 'node:http';
 import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import express from 'express';
 import multer from 'multer';
 import { WebSocketServer } from 'ws';
@@ -72,7 +75,7 @@ app.post('/api/register', wrap((req, res) => {
   if (inv) db.prepare(`UPDATE invites SET used_by = ?, used_at = ? WHERE code = ?`).run(info.lastInsertRowid, Date.now(), inv.code);
 
   const user = db.prepare(`SELECT * FROM users WHERE id = ?`).get(info.lastInsertRowid);
-  broadcast({ type: 'users' }, true);
+  broadcast({ type: 'users' });
   res.json({ token: createSession(user.id), user: publicUser(user) });
 }));
 
@@ -101,6 +104,50 @@ app.post('/api/me/password', requireAuth, wrap((req, res) => {
   db.prepare(`UPDATE users SET pass_hash = ? WHERE id = ?`).run(hashPassword(newPassword), u.id);
   res.json({ ok: true });
 }));
+
+// ---------- Профили и аватарки ----------
+
+const AVATAR_TYPES = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif' };
+const avatarUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 3 * 1024 * 1024, files: 1 } });
+
+// Все участники: нужны клиенту для аватарок и званий у звуков
+app.get('/api/users', requireAuth, (req, res) => {
+  const users = db.prepare(`SELECT id, username, is_admin, color, avatar FROM users ORDER BY id`).all();
+  res.json({ users: users.map(publicUser) });
+});
+
+function removeAvatarFile(file) {
+  if (file) fs.rmSync(path.join(config.avatarsDir, path.basename(file)), { force: true });
+}
+
+app.post('/api/me/avatar', requireAuth, avatarUpload.single('avatar'), wrap((req, res) => {
+  const f = req.file;
+  const ext = f && AVATAR_TYPES[f.mimetype];
+  if (!ext) return res.status(400).json({ error: 'Нужна картинка PNG, JPG, WEBP или GIF' });
+  const hash = crypto.createHash('sha256').update(f.buffer).digest('hex').slice(0, 16);
+  const file = `${req.user.id}-${hash}${ext}`;
+  fs.writeFileSync(path.join(config.avatarsDir, file), f.buffer);
+  if (req.user.avatar !== file) removeAvatarFile(req.user.avatar);
+  db.prepare(`UPDATE users SET avatar = ? WHERE id = ?`).run(file, req.user.id);
+  profileChanged();
+  res.json({ avatar: file });
+}));
+
+app.delete('/api/me/avatar', requireAuth, (req, res) => {
+  removeAvatarFile(req.user.avatar);
+  db.prepare(`UPDATE users SET avatar = NULL WHERE id = ?`).run(req.user.id);
+  profileChanged();
+  res.json({ ok: true });
+});
+
+// Аватарки открыты без токена: имя файла содержит хэш и меняется при каждой загрузке
+app.get('/api/avatars/:file', (req, res) => {
+  const file = path.basename(req.params.file);
+  const abs = path.join(config.avatarsDir, file);
+  if (!fs.existsSync(abs)) return res.status(404).end();
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  res.sendFile(abs);
+});
 
 // ---------- Звуки ----------
 
@@ -171,7 +218,7 @@ app.delete('/api/sounds/:id', requireAuth, (req, res) => {
 
 app.get('/api/admin/users', requireAdmin, (req, res) => {
   const users = db.prepare(`
-    SELECT u.id, u.username, u.is_admin, u.color, u.created_at,
+    SELECT u.id, u.username, u.is_admin, u.color, u.avatar, u.created_at,
            (SELECT COUNT(*) FROM sounds s WHERE s.uploaded_by = u.id) AS sounds
     FROM users u ORDER BY u.created_at`).all();
   res.json({ users: users.map((u) => ({ ...publicUser(u), createdAt: u.created_at, sounds: u.sounds, online: onlineUserIds().has(u.id) })) });
@@ -191,7 +238,7 @@ app.patch('/api/admin/users/:id', requireAdmin, wrap((req, res) => {
     db.prepare(`UPDATE users SET pass_hash = ? WHERE id = ?`).run(hashPassword(password), id);
     db.prepare(`DELETE FROM sessions WHERE user_id = ?`).run(id);
   }
-  broadcast({ type: 'users' }, true);
+  broadcast({ type: 'users' });
   res.json({ ok: true });
 }));
 
@@ -200,7 +247,7 @@ app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
   if (id === req.user.id) return res.status(400).json({ error: 'Нельзя удалить себя' });
   db.prepare(`DELETE FROM users WHERE id = ?`).run(id);
   for (const ws of wss.clients) if (ws.userId === id) ws.close(4001, 'deleted');
-  broadcast({ type: 'users' }, true);
+  broadcast({ type: 'users' });
   res.json({ ok: true });
 });
 
@@ -247,7 +294,8 @@ app.post('/api/admin/categories/rename', requireAdmin, wrap((req, res) => {
 
 app.use((err, req, res, _next) => {
   if (err instanceof multer.MulterError) {
-    const msg = err.code === 'LIMIT_FILE_SIZE' ? `Файл больше ${config.maxFileMb} МБ` : err.message;
+    const limit = req.path.includes('avatar') ? 3 : config.maxFileMb;
+    const msg = err.code === 'LIMIT_FILE_SIZE' ? `Файл больше ${limit} МБ` : err.message;
     return res.status(413).json({ error: msg });
   }
   const status = err.status || 500;
@@ -296,9 +344,14 @@ function onlineUserIds() {
 function broadcastPresence() {
   const ids = [...onlineUserIds()];
   const users = ids.length
-    ? db.prepare(`SELECT id, username, color FROM users WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids)
+    ? db.prepare(`SELECT id, username, color, avatar FROM users WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids)
     : [];
   broadcast({ type: 'presence', users });
+}
+
+function profileChanged() {
+  broadcast({ type: 'users' });
+  broadcastPresence();
 }
 
 function notifySounds(bump = true) {

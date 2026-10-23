@@ -118,3 +118,26 @@ test('импорт из папки на сервере', async () => {
   const again = await call('POST', '/api/admin/server-import', { token: admin, body: {} });
   assert.equal(again.data.duplicates, 2);
 });
+
+test('аватарка: загрузка, отдача без токена, удаление', async () => {
+  const { token, user } = (await call('POST', '/api/login', { body: { username: 'друг', password: 'pass1' } })).data;
+  // 1x1 PNG
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const bad = new FormData();
+  bad.append('avatar', new Blob([Buffer.from('hi')], { type: 'text/plain' }), 'a.txt');
+  assert.equal((await call('POST', '/api/me/avatar', { token, form: bad })).status, 400);
+
+  const form = new FormData();
+  form.append('avatar', new Blob([png], { type: 'image/png' }), 'a.png');
+  const up = await call('POST', '/api/me/avatar', { token, form });
+  assert.equal(up.status, 200);
+  assert.match(up.data.avatar, new RegExp(`^${user.id}-[0-9a-f]{16}\\.png$`));
+
+  const img = await fetch(`${base}/api/avatars/${up.data.avatar}`);
+  assert.equal(img.status, 200);
+  const users = await call('GET', '/api/users', { token });
+  assert.equal(users.data.users.find((u) => u.id === user.id).avatar, up.data.avatar);
+
+  assert.equal((await call('DELETE', '/api/me/avatar', { token })).status, 200);
+  assert.equal((await fetch(`${base}/api/avatars/${up.data.avatar}`)).status, 404);
+});

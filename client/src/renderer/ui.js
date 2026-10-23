@@ -130,9 +130,16 @@ export function initials(name) {
   return (name || '?').trim().slice(0, 1).toUpperCase();
 }
 
+let avatarBase = '';
+/** Адрес сервера, с которого грузятся картинки аватарок. */
+export function setAvatarBase(url) { avatarBase = url; }
+export const avatarUrl = (file) => (file ? `${avatarBase}/api/avatars/${encodeURIComponent(file)}` : null);
+
 export function avatar(user, { size = '', online = false } = {}) {
-  return h('div', { class: `avatar ${size}`, style: { background: user.color || '#5865f2' } },
-    initials(user.username), online ? h('span', { class: 'dot' }) : null);
+  const url = avatarUrl(user.avatar);
+  return h('div', { class: `avatar ${size}`, style: { background: url ? 'var(--bg-0)' : user.color || '#5865f2' } },
+    url ? h('img', { src: url, alt: '', draggable: false }) : initials(user.username),
+    online ? h('span', { class: 'dot' }) : null);
 }
 
 // ---------- Горячие клавиши в формате Electron ----------

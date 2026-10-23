@@ -1,8 +1,9 @@
 import { AudioEngine } from './audio.js';
 import {
   h, icon, toast, modal, confirmDialog, contextMenu, rangeFill, fmtSize, avatar,
-  accelFromEvent, prettyAccel,
+  accelFromEvent, prettyAccel, setAvatarBase,
 } from './ui.js';
+import { RANKS, rankFor, nextRank } from './ranks.js';
 import { openAdmin } from './admin.js';
 import { openUpload } from './upload.js';
 
@@ -17,6 +18,7 @@ export const state = {
   sounds: [],
   version: 0,
   online: [],
+  users: [],
   view: 'all',          // all | fav | mine | cat:<имя>
   search: '',
   syncing: false,
@@ -192,6 +194,7 @@ export async function logout(expired = false) {
 // ---------- Основной экран ----------
 
 async function enterApp() {
+  setAvatarBase(S('serverUrl'));
   renderShell();
   api('GET', '/api/info').then((info) => { state.serverInfo = info; }).catch(() => {});
   await applyAudio().catch((e) => toast(`Аудио: ${e.message}`, 'error'));
@@ -243,7 +246,10 @@ export async function refresh() {
   renderSyncState();
   try {
     const data = await api('GET', '/api/sounds');
-    state.sounds = data.sounds;
+    // «звук 2» раньше «звук 10»
+    const coll = new Intl.Collator('ru', { numeric: true, sensitivity: 'base' });
+    state.sounds = data.sounds.sort((a, b) => coll.compare(a.category, b.category) || coll.compare(a.name, b.name));
+    await loadUsers();
     state.version = data.version;
     await saveSettings({ soundsCache: data.sounds });
     renderSidebar();
@@ -258,6 +264,8 @@ export async function refresh() {
   } finally {
     state.syncing = false;
     renderSyncState();
+    renderUserPanel();
+    renderMembers();
     renderSidebar();
     renderGrid();
   }
@@ -280,6 +288,7 @@ function connectWs() {
       state.online = msg.users;
       renderMembers();
     } else if (msg.type === 'users') {
+      loadUsers().then(() => { renderUserPanel(); renderMembers(); renderGrid(); });
       document.dispatchEvent(new CustomEvent('users-changed'));
     }
   };
@@ -296,24 +305,70 @@ function connectWs() {
   };
 }
 
+// ---------- Участники и звания ----------
+
+async function loadUsers() {
+  try {
+    const { users } = await api('GET', '/api/users');
+    state.users = users;
+    const me = users.find((u) => u.id === state.user?.id);
+    if (me) {
+      state.user = { ...state.user, ...me };
+      saveSettings({ user: state.user });
+    }
+  } catch { /* старый сервер или нет связи — обойдёмся без аватарок */ }
+}
+
+export function userById(id) {
+  return state.users.find((u) => u.id === id) ?? null;
+}
+
+export function soundCount(userId) {
+  return state.sounds.filter((s) => s.uploadedById === userId).length;
+}
+
+export function userRank(user) {
+  return rankFor(soundCount(user.id));
+}
+
+/** Ник с оформлением по званию. */
+export function nameTag(user, { withIcon = true } = {}) {
+  const r = userRank(user);
+  return h('span', { class: `nick ${r.cls}`, title: `${r.title} · звуков: ${soundCount(user.id)}` },
+    h('span', { class: 'nick-text', 'data-text': user.username }, user.username),
+    withIcon && r.icon ? h('span', { class: 'nick-icon' }, r.icon) : null);
+}
+
 // ---------- Проигрывание ----------
 
 export function play(sound) {
   engine.play(sound, native.readSound).catch((e) => toast(`Не удалось сыграть «${sound.name}»: ${e.message}`, 'error'));
 }
 
+let animating = false;
+
 engine.onChange = () => {
   document.querySelectorAll('.tile').forEach((t) => t.classList.toggle('playing', engine.isPlaying(Number(t.dataset.id))));
   renderNowPlaying();
-  if (engine.playing.size) requestAnimationFrame(animateBars);
+  if (!animating) {
+    animating = true;
+    requestAnimationFrame(animateBars);
+  }
 };
+
+function fmtTime(sec) {
+  const s = Math.max(0, Math.floor(sec));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 
 function animateBars() {
   document.querySelectorAll('.tile.playing').forEach((t) => {
     t.querySelector('.bar').style.transform = `scaleX(${engine.progress(Number(t.dataset.id))})`;
   });
   document.querySelectorAll('.tile:not(.playing) .bar').forEach((b) => { b.style.transform = 'scaleX(0)'; });
+  updateScrubber();
   if (engine.playing.size) requestAnimationFrame(animateBars);
+  else animating = false;
 }
 
 // ---------- Отрисовка ----------
@@ -415,9 +470,9 @@ function renderUserPanel() {
   const micOn = S('micEnabled');
   els.userPanel.replaceChildren(
     avatar(state.user, { online: state.connected }),
-    h('div', { class: 'who' },
-      h('div', { class: 'uname' }, state.user.username),
-      h('div', { class: 'ustatus' }, state.user.isAdmin ? 'админ' : 'в сети')),
+    h('div', { class: 'who', title: 'Профиль', onclick: () => openSettings('account') },
+      h('div', { class: 'uname' }, nameTag(state.user)),
+      h('div', { class: 'ustatus' }, userRank(state.user).title + (state.user.isAdmin ? ' · админ' : ''))),
     h('button', {
       class: `icon-btn ${micOn ? '' : 'off'}`,
       title: micOn ? 'Микрофон идёт в Discord через SoundPad (нажми, чтобы выключить)' : 'Микрофон не подмешивается',
@@ -492,7 +547,7 @@ function tile(s) {
     oncontextmenu: (e) => { e.preventDefault(); soundMenu(s, e.clientX, e.clientY); },
   },
   h('div', { class: 't-top' }, s.emoji ? h('span', { class: 'emoji' }, s.emoji) : null, h('div', { class: 't-name' }, s.name)),
-  h('div', { class: 't-bottom' }, h('span', { class: 'who' }, s.uploadedBy ?? ''), hk ? h('span', { class: 'kbd' }, prettyAccel(hk)) : null),
+  h('div', { class: 't-bottom' }, h('span', { class: 'who' }, userById(s.uploadedById) ? nameTag(userById(s.uploadedById), { withIcon: false }) : s.uploadedBy ?? ''), hk ? h('span', { class: 'kbd' }, prettyAccel(hk)) : null),
   h('button', {
     class: `star ${favs.has(s.id) ? 'on' : ''}`, title: 'В избранное',
     onclick: (e) => { e.stopPropagation(); toggleFav(s.id); },
@@ -632,7 +687,11 @@ function renderMembers() {
   els.membersBtn?.classList.toggle('active', S('showMembers'));
   els.members.replaceChildren(
     h('div', { class: 'nav-section' }, `В сети — ${state.online.length}`),
-    ...state.online.map((u) => h('div', { class: 'member' }, avatar(u, { online: true }), h('span', { class: 'mname' }, u.username))),
+    ...state.online.map((o) => {
+      const u = userById(o.id) ?? o;
+      return h('div', { class: 'member' }, avatar(u, { online: true }),
+        h('div', { class: 'grow' }, h('div', { class: 'mname' }, nameTag(u)), h('div', { class: 'mrank' }, userRank(u).title)));
+    }),
   );
 }
 
@@ -650,11 +709,26 @@ function renderPlayerBar() {
     return h('div', { class: 'vol', title }, icon(iconName), h('span', { class: 'vlabel' }, label), r);
   };
   els.nowPlaying = h('div', { class: 'now-playing' });
+  els.scrubTime = h('span', { class: 'scrub-time' }, '0:00');
+  els.scrubTotal = h('span', { class: 'scrub-time' }, '0:00');
+  els.scrub = h('input', { type: 'range', min: 0, max: 1000, value: 0, class: 'scrub-range', title: 'Перемотка: перетащи или кликни' });
+  els.scrub.addEventListener('pointerdown', () => { els.scrub.dragging = true; });
+  els.scrub.addEventListener('input', () => {
+    rangeFill(els.scrub);
+    const p = engine.latest();
+    if (p) els.scrubTime.textContent = fmtTime((els.scrub.value / 1000) * p.buffer.duration);
+  });
+  els.scrub.addEventListener('change', () => {
+    els.scrub.dragging = false;
+    const p = engine.latest();
+    if (p) engine.seek(p.id, els.scrub.value / 1000);
+  });
+  els.scrubber = h('div', { class: 'scrubber' }, els.nowPlaying, h('div', { class: 'scrub-row' }, els.scrubTime, els.scrub, els.scrubTotal));
   els.playerBar.replaceChildren(...[
     h('button', { class: 'btn small secondary', title: `Остановить всё (${prettyAccel(S('stopHotkey'))})`, onclick: () => engine.stopAll() }, icon('stop'), 'Стоп'),
-    els.nowPlaying,
+    els.scrubber,
     state.missingCable
-      ? h('button', { class: 'warn-pill', onclick: () => openSettings('audio'), title: 'Без виртуального кабеля друзья не услышат звуки' }, '⚠ Не выбран вывод в Discord')
+      ? h('button', { class: 'warn-pill', onclick: () => openSettings('audio'), title: 'Без виртуального кабеля друзья не услышат звуки' }, '⚠ Нет вывода в Discord')
       : null,
     slider('monitorVolume', 'Мне', 'headphones', 'Громкость в твоих наушниках'),
     slider('cableVolume', 'В Discord', 'discord', 'Громкость, которую слышат друзья'),
@@ -666,6 +740,21 @@ function renderNowPlaying() {
   if (!els.nowPlaying) return;
   const names = [...new Set([...engine.playing.values()].map((p) => state.sounds.find((s) => s.id === p.soundId)?.name).filter(Boolean))];
   els.nowPlaying.replaceChildren(...(names.length ? ['Играет: ', h('b', {}, names.join(', '))] : ['Нажми на звук, чтобы сыграть']));
+  els.scrubber.classList.toggle('active', engine.playing.size > 0);
+  updateScrubber();
+}
+
+/** Ползунок перемотки показывает самый свежий из играющих звуков. */
+function updateScrubber() {
+  if (!els.scrub || els.scrub.dragging) return;
+  const p = engine.latest();
+  const dur = p ? p.buffer.duration : 0;
+  const pos = p ? engine.position(p) : 0;
+  els.scrub.disabled = !p;
+  els.scrub.value = Math.round(pos * 1000);
+  rangeFill(els.scrub);
+  els.scrubTime.textContent = fmtTime(pos * dur);
+  els.scrubTotal.textContent = fmtTime(dur);
 }
 
 // ---------- Перетаскивание файлов ----------
@@ -696,7 +785,7 @@ export async function openSettings(tab = 'audio') {
   const tabs = {
     audio: { label: 'Звук и Discord', icon: 'speaker', render: renderAudioTab },
     hotkeys: { label: 'Горячие клавиши', icon: 'keyboard', render: renderHotkeysTab },
-    account: { label: 'Аккаунт', icon: 'user', render: renderAccountTab },
+    account: { label: 'Профиль', icon: 'user', render: renderAccountTab },
   };
   const nav = h('div', { class: 'tabbed-nav' });
   const select = (key) => {
@@ -796,14 +885,82 @@ function renderHotkeysTab(body) {
   );
 }
 
+// Квадратная обрезка по центру до 256×256. GIF не трогаем, чтобы не пропала анимация.
+async function prepareAvatar(file) {
+  if (file.type === 'image/gif') return file;
+  const img = await createImageBitmap(file);
+  const side = Math.min(img.width, img.height);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  canvas.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 256, 256);
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.9));
+}
+
+async function uploadAvatar(file) {
+  const blob = await prepareAvatar(file);
+  if (blob.size > 3 * 1024 * 1024) throw new Error('Картинка больше 3 МБ');
+  const form = new FormData();
+  form.append('avatar', blob, blob.type === 'image/gif' ? 'avatar.gif' : 'avatar.webp');
+  const res = await fetch(`${S('serverUrl')}/api/me/avatar`, { method: 'POST', headers: { authorization: `Bearer ${state.settings.token}` }, body: form });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Ошибка ${res.status}`);
+  state.user = { ...state.user, avatar: data.avatar };
+  await saveSettings({ user: state.user });
+}
+
+function renderRankCard() {
+  const count = soundCount(state.user.id);
+  const cur = rankFor(count);
+  const next = nextRank(count);
+  const pct = next ? ((count - cur.min) / (next.min - cur.min)) * 100 : 100;
+  return h('div', { class: 'card' },
+    h('div', { class: 'row between' },
+      h('div', {}, h('div', { class: 'label', style: { marginBottom: '4px' } }, 'Звание'), h('div', { class: 'rank-title' }, cur.icon, ' ', cur.title)),
+      h('div', { class: 'muted' }, `звуков: ${count}`)),
+    h('div', { class: 'progress', style: { margin: '12px 0 6px' } }, h('div', { style: { width: `${pct}%` } })),
+    h('div', { class: 'hint' }, next ? `До звания «${next.title}» осталось ${next.min - count}` : 'Максимальное звание. Уважение 🫡'),
+    h('div', { class: 'rank-list' }, RANKS.map((r) => h('div', { class: `rank-row ${r === cur ? 'current' : ''}` },
+      h('span', { class: `nick ${r.cls}` }, h('span', { class: 'nick-text', 'data-text': r.title }, r.title), r.icon ? h('span', { class: 'nick-icon' }, r.icon) : null),
+      h('span', { class: 'muted' }, r.min === 0 ? 'с начала' : `от ${r.min} звуков`)))));
+}
+
 function renderAccountTab(body) {
   const oldP = h('input', { class: 'input', type: 'password' });
   const newP = h('input', { class: 'input', type: 'password' });
+  const fileInput = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', style: { display: 'none' } });
+  const rerender = () => { body.replaceChildren(); renderAccountTab(body); renderUserPanel(); renderMembers(); };
+  fileInput.addEventListener('change', async () => {
+    const f = fileInput.files[0];
+    if (!f) return;
+    try {
+      await uploadAvatar(f);
+      toast('Аватарка обновлена', 'ok');
+      rerender();
+    } catch (e) { toast(e.message, 'error'); }
+  });
   body.append(
-    h('div', { class: 'card row' }, avatar(state.user),
-      h('div', { class: 'grow' }, h('b', { style: { color: 'var(--text-strong)' } }, state.user.username),
-        h('div', { class: 'muted' }, `${state.user.isAdmin ? 'Админ' : 'Участник'} · ${S('serverUrl')}`)),
+    h('div', { class: 'card profile-card' },
+      h('div', { class: 'avatar-edit', title: 'Сменить аватарку', onclick: () => fileInput.click() }, avatar(state.user, { size: 'xl' }), h('div', { class: 'avatar-edit-hint' }, 'Сменить')),
+      fileInput,
+      h('div', { class: 'grow' },
+        h('div', { class: 'profile-name' }, nameTag(state.user)),
+        h('div', { class: 'muted' }, `${state.user.isAdmin ? 'Админ' : 'Участник'} · ${S('serverUrl')}`),
+        h('div', { class: 'row', style: { marginTop: '10px', gap: '8px' } },
+          h('button', { class: 'btn small', onclick: () => fileInput.click() }, 'Загрузить аватарку'),
+          state.user.avatar ? h('button', {
+            class: 'btn small ghost',
+            onclick: async () => {
+              try {
+                await api('DELETE', '/api/me/avatar');
+                state.user = { ...state.user, avatar: null };
+                await saveSettings({ user: state.user });
+                rerender();
+              } catch (e) { toast(e.message, 'error'); }
+            },
+          }, 'Убрать') : null)),
       h('button', { class: 'btn danger small', onclick: () => { document.querySelector('.backdrop')?.remove(); logout(); } }, 'Выйти')),
+    h('div', { class: 'hint', style: { margin: '-8px 0 16px' } }, 'PNG, JPG, WEBP или GIF до 3 МБ. Картинка обрежется до квадрата, GIF останется анимированным.'),
+    renderRankCard(),
     h('div', { class: 'label' }, 'Сменить пароль'),
     h('div', { class: 'row' },
       h('div', { class: 'field grow' }, h('label', { class: 'label' }, 'Старый'), oldP),

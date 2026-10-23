@@ -121,26 +121,53 @@ export class AudioEngine {
     if (!this.overlap) this.stopAll();
 
     const id = this.nextId++;
-    const nodes = [];
-    const gainValue = (sound.volume ?? 1) * volume;
+    const entry = { id, soundId: sound.id, buffer, gain: (sound.volume ?? 1) * volume, nodes: [], startedAt: 0, duration: buffer.duration * 1000 };
+    this.playing.set(id, entry);
+    this.startNodes(entry, 0);
+    this.onChange();
+    return id;
+  }
+
+  /** Запускает звук в оба выхода с позиции offset (секунды). */
+  startNodes(entry, offset) {
+    const gen = (entry.gen ?? 0) + 1;
+    entry.gen = gen;
+    entry.nodes = [];
     for (const out of [this.monitor, this.cable]) {
       if (out.sinkId === 'none') continue;
       const src = out.ctx.createBufferSource();
-      src.buffer = buffer;
+      src.buffer = entry.buffer;
       const g = out.ctx.createGain();
-      g.gain.value = gainValue;
+      g.gain.value = entry.gain;
       src.connect(g).connect(out.master);
-      src.start();
-      nodes.push({ src, g });
+      src.start(0, offset);
+      entry.nodes.push({ src, g });
     }
-    const entry = { id, soundId: sound.id, nodes, startedAt: performance.now(), duration: buffer.duration * 1000 };
-    this.playing.set(id, entry);
-    nodes[0]?.src.addEventListener('ended', () => {
-      this.playing.delete(id);
+    entry.startedAt = performance.now() - offset * 1000;
+    entry.nodes[0]?.src.addEventListener('ended', () => {
+      // После перемотки старые источники тоже присылают ended — их пропускаем
+      if (entry.gen !== gen) return;
+      this.playing.delete(entry.id);
       this.onChange();
     });
+  }
+
+  /** Перемотка проигрывания на долю 0..1 от длины звука. */
+  seek(playId, fraction) {
+    const entry = this.playing.get(playId);
+    if (!entry) return;
+    const offset = Math.min(0.999, Math.max(0, fraction)) * entry.buffer.duration;
+    const old = entry.nodes;
+    this.startNodes(entry, offset);
+    old.forEach(({ src }) => { try { src.stop(); } catch { /* уже остановлен */ } });
     this.onChange();
-    return id;
+  }
+
+  /** Самое свежее из того, что сейчас играет. */
+  latest() {
+    let best = null;
+    for (const p of this.playing.values()) if (!best || p.startedAt > best.startedAt) best = p;
+    return best;
   }
 
   stop(soundId) {
@@ -169,7 +196,10 @@ export class AudioEngine {
   progress(soundId) {
     let best = null;
     for (const p of this.playing.values()) if (p.soundId === soundId && (!best || p.startedAt > best.startedAt)) best = p;
-    if (!best) return 0;
-    return Math.min(1, (performance.now() - best.startedAt) / best.duration);
+    return best ? this.position(best) : 0;
+  }
+
+  position(entry) {
+    return Math.min(1, (performance.now() - entry.startedAt) / entry.duration);
   }
 }

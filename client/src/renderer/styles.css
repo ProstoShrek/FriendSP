@@ -387,3 +387,77 @@ input[type=range] { background: linear-gradient(var(--accent), var(--accent)) 0/
 @keyframes blink { 50% { opacity: .3; } }
 
 @media (max-width: 1050px) { .members { display: none; } }
+
+/* ---------- Аватарки ---------- */
+.avatar { overflow: visible; }
+.avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; }
+.avatar.xl { width: 80px; height: 80px; font-size: 32px; }
+.avatar-edit { position: relative; cursor: pointer; border-radius: 50%; flex: none; }
+.avatar-edit-hint {
+  position: absolute; inset: 0; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(0,0,0,.55); color: #fff; font-size: 12px; font-weight: 700; text-transform: uppercase; opacity: 0; transition: opacity .15s;
+}
+.avatar-edit:hover .avatar-edit-hint { opacity: 1; }
+.profile-card { display: flex; align-items: center; gap: 16px; }
+.profile-name { font-size: 20px; font-weight: 700; margin-bottom: 2px; }
+.user-panel .who { cursor: pointer; }
+.user-panel .who:hover { background: var(--bg-hover); }
+.member .mrank { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.member { height: 46px; }
+
+/* ---------- Звания: оформление ника ---------- */
+.nick { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; min-width: 0; font-weight: 600; }
+.nick-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nick-icon { font-size: .9em; line-height: 1; flex: none; }
+
+.rank-0 .nick-text { color: var(--text-muted); font-weight: 500; }
+.rank-1 .nick-text { color: var(--text-strong); }
+.rank-2 .nick-text { color: #57f287; text-shadow: 0 0 8px rgba(87, 242, 135, .35); }
+.rank-3 .nick-text {
+  background: linear-gradient(90deg, #5865f2, #eb459e);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.rank-4 .nick-text {
+  background: linear-gradient(90deg, #00d4ff, #8b5cf6, #ff4fd8, #00d4ff);
+  background-size: 300% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: nick-flow 4s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(139, 92, 246, .55));
+}
+.rank-5 .nick-text {
+  background: linear-gradient(100deg, #b8860b 0%, #ffd700 30%, #fff6c8 45%, #ffd700 60%, #b8860b 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: nick-shine 2.8s linear infinite;
+  filter: drop-shadow(0 0 6px rgba(255, 200, 0, .55));
+  font-weight: 800;
+}
+.rank-6 .nick-text {
+  background: linear-gradient(90deg, #ff4d4d, #ffb84d, #fff04d, #4dff88, #4dd2ff, #9b4dff, #ff4dd2, #ff4d4d);
+  background-size: 400% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: nick-flow 3s linear infinite;
+  filter: drop-shadow(0 0 7px rgba(255, 255, 255, .45));
+  font-weight: 800; letter-spacing: .02em;
+}
+.rank-6 .nick-icon { animation: nick-pulse 1.4s ease-in-out infinite; }
+@keyframes nick-flow { to { background-position: 300% 0; } }
+@keyframes nick-shine { from { background-position: 150% 0; } to { background-position: -100% 0; } }
+@keyframes nick-pulse { 50% { transform: scale(1.25); filter: drop-shadow(0 0 6px #fff04d); } }
+
+.rank-title { font-size: 18px; font-weight: 700; color: var(--text-strong); }
+.rank-list { margin-top: 14px; display: grid; gap: 2px; }
+.rank-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 4px; font-size: 14px; }
+.rank-row.current { background: var(--bg-active); }
+.tile .t-bottom .who .nick { font-weight: 600; }
+
+/* ---------- Перемотка ---------- */
+.scrubber { flex: 1; min-width: 240px; display: flex; flex-direction: column; justify-content: center; gap: 2px; }
+.scrubber .now-playing { flex: none; }
+.scrub-row { display: none; align-items: center; gap: 8px; }
+.scrubber.active .scrub-row { display: flex; }
+.scrub-time { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; width: 32px; flex: none; }
+.scrub-row .scrub-time:last-child { text-align: right; }
+.scrub-range { height: 4px; }
+.scrub-range::-webkit-slider-thumb { width: 12px; height: 12px; opacity: 0; transition: opacity .1s; }
+.scrubber:hover .scrub-range::-webkit-slider-thumb { opacity: 1; }

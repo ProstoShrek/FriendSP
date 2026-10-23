@@ -399,14 +399,14 @@ function renderSidebar() {
     onclick: () => setView(view),
   }, iconEl, h('span', { class: 'name' }, name), count != null ? h('span', { class: 'count' }, count) : null);
 
-  els.nav.replaceChildren(
+  els.nav.replaceChildren(...[
     item('all', icon('all'), 'Все звуки', state.sounds.length),
     item('fav', icon('star'), 'Избранное', state.sounds.filter((s) => favs.has(s.id)).length),
     item('mine', icon('user'), 'Мои звуки', state.sounds.filter((s) => s.uploadedById === state.user.id).length),
     h('div', { class: 'nav-section' }, 'Категории'),
     ...categories().map(([c, n]) => item(`cat:${c}`, h('span', { class: 'hash' }, '#'), c, n)),
     state.sounds.some((s) => !s.category) ? item('cat:', h('span', { class: 'hash' }, '#'), 'без категории', state.sounds.filter((s) => !s.category).length) : null,
-  );
+  ].filter(Boolean));
   els.adminBtn.style.display = state.user.isAdmin ? '' : 'none';
 }
 
@@ -650,7 +650,7 @@ function renderPlayerBar() {
     return h('div', { class: 'vol', title }, icon(iconName), h('span', { class: 'vlabel' }, label), r);
   };
   els.nowPlaying = h('div', { class: 'now-playing' });
-  els.playerBar.replaceChildren(
+  els.playerBar.replaceChildren(...[
     h('button', { class: 'btn small secondary', title: `Остановить всё (${prettyAccel(S('stopHotkey'))})`, onclick: () => engine.stopAll() }, icon('stop'), 'Стоп'),
     els.nowPlaying,
     state.missingCable
@@ -658,7 +658,7 @@ function renderPlayerBar() {
       : null,
     slider('monitorVolume', 'Мне', 'headphones', 'Громкость в твоих наушниках'),
     slider('cableVolume', 'В Discord', 'discord', 'Громкость, которую слышат друзья'),
-  );
+  ].filter(Boolean));
   renderNowPlaying();
 }
 
@@ -738,7 +738,7 @@ async function renderAudioTab(body) {
   micVol.addEventListener('input', () => { rangeFill(micVol); engine.micGain.gain.value = micVol.value / 100; });
   micVol.addEventListener('change', () => saveSettings({ micVolume: micVol.value / 100 }));
 
-  body.append(
+  body.append(...[
     cableFound ? null : h('div', { class: 'card', style: { borderLeft: '4px solid var(--yellow)' } },
       h('h4', {}, 'Не найден виртуальный кабель'),
       h('div', { class: 'muted' }, 'Чтобы друзья в Discord слышали звуки, установи бесплатный VB-Cable (vb-audio.com/Cable), перезагрузи ПК и выбери «CABLE Input» ниже.')),
@@ -763,7 +763,7 @@ async function renderAudioTab(body) {
       h('div', { class: 'setting-row' },
         h('div', { class: 'grow' }, h('b', {}, 'Звуки поверх друг друга'), h('span', {}, 'Если выключить, новый звук останавливает предыдущий.')),
         toggle('overlap', reapply))),
-  );
+  ].filter(Boolean));
 }
 
 function renderHotkeysTab(body) {

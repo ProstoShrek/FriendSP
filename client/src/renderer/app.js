@@ -78,6 +78,8 @@ function normalizeUrl(url) {
   // Порт по умолчанию, если указан только адрес
   try {
     const parsed = new URL(u);
+    // 0.0.0.0 — это «слушать везде» в логе сервера, подключаться надо к localhost
+    if (parsed.hostname === '0.0.0.0') parsed.hostname = 'localhost';
     if (!parsed.port && parsed.protocol === 'http:' && !/[a-z]/i.test(parsed.hostname.replace(/localhost/, '1'))) parsed.port = '8787';
     u = parsed.origin;
   } catch { /* оставим как есть, ошибка всплывёт при подключении */ }

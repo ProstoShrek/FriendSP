@@ -1,4 +1,5 @@
 import http from 'node:http';
+import os from 'node:os';
 import express from 'express';
 import multer from 'multer';
 import { WebSocketServer } from 'ws';
@@ -305,8 +306,22 @@ function notifySounds(bump = true) {
   broadcast({ type: 'sounds', version });
 }
 
+// Адреса, по которым к серверу можно подключиться из программы
+function connectAddresses() {
+  const port = server.address().port;
+  if (!['0.0.0.0', '::'].includes(config.host)) return [`${config.host}:${port}`];
+  const out = [`localhost:${port}  (на этом ПК)`];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const a of list ?? []) {
+      if (a.family === 'IPv4' && !a.internal) out.push(`${a.address}:${port}`);
+    }
+  }
+  return out;
+}
+
 server.listen(config.port, config.host, () => {
-  console.log(`SoundPad server: http://${config.host}:${config.port}`);
+  console.log('SoundPad server запущен. Адрес для программы:');
+  for (const a of connectAddresses()) console.log(`  ${a}`);
   console.log(`Данные: ${config.dataDir}`);
   console.log(`Папка импорта: ${config.importDir}`);
   if (db.prepare(`SELECT COUNT(*) AS n FROM users`).get().n === 0) {

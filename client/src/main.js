@@ -228,6 +228,31 @@ ipcMain.handle('hotkeys:set', (_e, map) => {
   return { failed };
 });
 
+// ---------- Автообновление ----------
+// Новые версии берутся из релизов GitHub. Скачиваются тихо в фоне,
+// ставятся при следующем запуске или по кнопке «Перезапустить».
+
+let updater = null;
+
+function setupUpdater() {
+  // В режиме разработки и в portable-версии обновляться нечему
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR) return;
+  ({ autoUpdater: updater } = require('electron-updater'));
+  updater.autoDownload = true;
+  updater.autoInstallOnAppQuit = true;
+  const send = (data) => win?.webContents.send('update:status', data);
+  updater.on('update-available', (i) => send({ state: 'downloading', version: i.version }));
+  updater.on('download-progress', (p) => send({ state: 'downloading', percent: Math.round(p.percent) }));
+  updater.on('update-downloaded', (i) => send({ state: 'ready', version: i.version }));
+  updater.on('error', (e) => console.error('update error', e?.message));
+  const check = () => updater.checkForUpdates().catch(() => { /* нет интернета — попробуем позже */ });
+  setTimeout(check, 5000);
+  setInterval(check, 2 * 60 * 60 * 1000);
+}
+
+ipcMain.on('update:install', () => updater?.quitAndInstall(true, true));
+ipcMain.handle('app:version', () => app.getVersion());
+
 // ---------- Жизненный цикл ----------
 
 // Одна копия программы: второй запуск просто показывает окно
@@ -246,6 +271,7 @@ if (!app.requestSingleInstanceLock()) {
     const ses = require('electron').session.defaultSession;
     ses.setPermissionRequestHandler((_wc, perm, cb) => cb(['media', 'speaker-selection', 'clipboard-sanitized-write'].includes(perm)));
     createWindow();
+    setupUpdater();
   });
 
   app.on('will-quit', () => globalShortcut.unregisterAll());

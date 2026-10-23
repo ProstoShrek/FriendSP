@@ -3,7 +3,7 @@ import {
   h, icon, toast, modal, confirmDialog, contextMenu, rangeFill, fmtSize, avatar,
   accelFromEvent, prettyAccel, setAvatarBase,
 } from './ui.js';
-import { RANKS, rankFor, nextRank } from './ranks.js';
+import { getRanks, setRanks, rankFor, nextRank, rankById } from './ranks.js';
 import { openAdmin } from './admin.js';
 import { openUpload } from './upload.js';
 
@@ -249,8 +249,9 @@ export async function refresh() {
     // «звук 2» раньше «звук 10»
     const coll = new Intl.Collator('ru', { numeric: true, sensitivity: 'base' });
     state.sounds = data.sounds.sort((a, b) => coll.compare(a.category, b.category) || coll.compare(a.name, b.name));
-    await loadUsers();
+    await Promise.all([loadUsers(), loadRanks()]);
     state.version = data.version;
+    document.dispatchEvent(new CustomEvent('sounds-changed'));
     await saveSettings({ soundsCache: data.sounds });
     renderSidebar();
     renderGrid();
@@ -288,7 +289,10 @@ function connectWs() {
       state.online = msg.users;
       renderMembers();
     } else if (msg.type === 'users') {
-      loadUsers().then(() => { renderUserPanel(); renderMembers(); renderGrid(); });
+      loadUsers().then(rerenderPeople);
+    } else if (msg.type === 'ranks') {
+      loadRanks().then(rerenderPeople);
+      document.dispatchEvent(new CustomEvent('ranks-changed'));
       document.dispatchEvent(new CustomEvent('users-changed'));
     }
   };
@@ -306,6 +310,19 @@ function connectWs() {
 }
 
 // ---------- Участники и звания ----------
+
+export async function loadRanks() {
+  try {
+    const { ranks } = await api('GET', '/api/ranks');
+    setRanks(ranks);
+  } catch { /* старый сервер — остаются звания по умолчанию */ }
+}
+
+function rerenderPeople() {
+  renderUserPanel();
+  renderMembers();
+  renderGrid();
+}
 
 async function loadUsers() {
   try {
@@ -327,16 +344,24 @@ export function soundCount(userId) {
   return state.sounds.filter((s) => s.uploadedById === userId).length;
 }
 
+/** Звание: выданное админом вручную или по числу звуков. */
 export function userRank(user) {
-  return rankFor(soundCount(user.id));
+  const u = userById(user.id) ?? user;
+  return (u.rankOverride && rankById(u.rankOverride)) || rankFor(soundCount(user.id));
+}
+
+/** Ник в оформлении звания; при наведении по нику пробегает блик. */
+export function styledName(text, rank, { withIcon = true, title } = {}) {
+  return h('span', { class: `nick s-${rank.style || 'plain'}`, title },
+    h('span', { class: 'nick-text' }, text),
+    withIcon && rank.icon ? h('span', { class: 'nick-icon' }, rank.icon) : null);
 }
 
 /** Ник с оформлением по званию. */
 export function nameTag(user, { withIcon = true } = {}) {
   const r = userRank(user);
-  return h('span', { class: `nick ${r.cls}`, title: `${r.title} · звуков: ${soundCount(user.id)}` },
-    h('span', { class: 'nick-text', 'data-text': user.username }, user.username),
-    withIcon && r.icon ? h('span', { class: 'nick-icon' }, r.icon) : null);
+  const manual = (userById(user.id) ?? user).rankOverride ? ' (выдано админом)' : '';
+  return styledName(user.username, r, { withIcon, title: `${r.title}${manual} · звуков: ${soundCount(user.id)}` });
 }
 
 // ---------- Проигрывание ----------
@@ -910,21 +935,23 @@ async function uploadAvatar(file) {
 
 function renderRankCard() {
   const count = soundCount(state.user.id);
-  const cur = rankFor(count);
-  const next = nextRank(count);
+  const cur = userRank(state.user);
+  const manual = !!state.user.rankOverride;
+  const next = manual ? null : nextRank(count);
   const pct = next ? ((count - cur.min) / (next.min - cur.min)) * 100 : 100;
   return h('div', { class: 'card' },
     h('div', { class: 'row between' },
       h('div', {}, h('div', { class: 'label', style: { marginBottom: '4px' } }, 'Звание'), h('div', { class: 'rank-title' }, cur.icon, ' ', cur.title)),
       h('div', { class: 'muted' }, `звуков: ${count}`)),
     h('div', { class: 'progress', style: { margin: '12px 0 6px' } }, h('div', { style: { width: `${pct}%` } })),
-    h('div', { class: 'hint' }, next ? `До звания «${next.title}» осталось ${next.min - count}` : 'Максимальное звание. Уважение 🫡'),
-    h('div', { class: 'rank-list' }, RANKS.map((r) => h('div', { class: `rank-row ${r === cur ? 'current' : ''}` },
-      h('span', { class: `nick ${r.cls}` }, h('span', { class: 'nick-text', 'data-text': r.title }, r.title), r.icon ? h('span', { class: 'nick-icon' }, r.icon) : null),
+    h('div', { class: 'hint' }, manual ? 'Это звание выдал админ.' : next ? `До звания «${next.title}» осталось ${next.min - count}` : 'Максимальное звание. Уважение 🫡'),
+    h('div', { class: 'rank-list' }, getRanks().map((r) => h('div', { class: `rank-row ${r.id === cur.id ? 'current' : ''}` },
+      styledName(r.title, r),
       h('span', { class: 'muted' }, r.min === 0 ? 'с начала' : `от ${r.min} звуков`)))));
 }
 
 function renderAccountTab(body) {
+  native.appVersion().then((v) => { const el = body.querySelector('.app-version'); if (el) el.textContent = `SoundPad ${v}`; });
   const oldP = h('input', { class: 'input', type: 'password' });
   const newP = h('input', { class: 'input', type: 'password' });
   const fileInput = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', style: { display: 'none' } });
@@ -945,6 +972,7 @@ function renderAccountTab(body) {
       h('div', { class: 'grow' },
         h('div', { class: 'profile-name' }, nameTag(state.user)),
         h('div', { class: 'muted' }, `${state.user.isAdmin ? 'Админ' : 'Участник'} · ${S('serverUrl')}`),
+        h('div', { class: 'hint app-version' }),
         h('div', { class: 'row', style: { marginTop: '10px', gap: '8px' } },
           h('button', { class: 'btn small', onclick: () => fileInput.click() }, 'Загрузить аватарку'),
           state.user.avatar ? h('button', {
@@ -983,6 +1011,18 @@ document.addEventListener('keydown', (e) => {
   if (!state.user || document.querySelector('.backdrop')) return;
   if (e.ctrlKey && e.code === 'KeyF') { e.preventDefault(); els.search?.focus(); }
   if (e.code === 'Escape' && document.activeElement !== els.search) engine.stopAll();
+});
+
+// Автообновление: плашка в заголовке окна
+native.onUpdateStatus((u) => {
+  const slot = document.getElementById('update-slot');
+  if (u.state === 'downloading') {
+    slot.replaceChildren(h('span', { class: 'update-pill' }, `Загружаю обновление${u.percent != null ? ` ${u.percent}%` : ''}…`));
+  } else if (u.state === 'ready') {
+    slot.replaceChildren(h('button', { class: 'update-pill ready', onclick: () => native.installUpdate(), title: 'Программа перезапустится, звуки и настройки сохранятся' },
+      `Обновить до ${u.version}`));
+    toast(`Версия ${u.version} скачана. Нажми «Обновить» вверху или просто перезапусти программу.`, 'ok');
+  }
 });
 
 boot();

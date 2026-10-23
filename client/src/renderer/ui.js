@@ -48,6 +48,7 @@ export const icons = {
   keyboard: '<path fill="currentColor" d="M3 6h18a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zm2 3v2h2V9zm4 0v2h2V9zm4 0v2h2V9zm4 0v2h2V9zM5 13v2h2v-2zm4 0v2h6v-2zm8 0v2h2v-2z"/>',
   speaker: '<path fill="currentColor" d="M4 9v6h4l5 4V5L8 9zm12.5 3a4.5 4.5 0 0 0-2.5-4v8a4.5 4.5 0 0 0 2.5-4z"/>',
   close: '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/>',
+  more: '<circle cx="5" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="19" cy="12" r="2" fill="currentColor"/>',
   plus: '<path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/>',
 };
 
@@ -137,8 +138,9 @@ export const avatarUrl = (file) => (file ? `${avatarBase}/api/avatars/${encodeUR
 
 export function avatar(user, { size = '', online = false } = {}) {
   const url = avatarUrl(user.avatar);
-  return h('div', { class: `avatar ${size}`, style: { background: url ? 'var(--bg-0)' : user.color || '#5865f2' } },
-    url ? h('img', { src: url, alt: '', draggable: false }) : initials(user.username),
+  // Без своей картинки — нейтральный серый силуэт
+  return h('div', { class: `avatar ${size} ${url ? '' : 'default'}` },
+    url ? h('img', { src: url, alt: '', draggable: false }) : svg('<circle cx="12" cy="9" r="4" fill="currentColor"/><path d="M4.5 20c.8-3.6 3.9-6 7.5-6s6.7 2.4 7.5 6z" fill="currentColor"/>', 'avatar-default'),
     online ? h('span', { class: 'dot' }) : null);
 }
 

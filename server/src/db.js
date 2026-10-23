@@ -21,6 +21,8 @@ db.exec(`
     is_admin   INTEGER NOT NULL DEFAULT 0,
     color      TEXT NOT NULL,
     avatar     TEXT,
+    -- Звание, выданное админом вручную (id из списка званий); NULL — по числу звуков
+    rank_override TEXT,
     created_at INTEGER NOT NULL
   );
 
@@ -62,6 +64,7 @@ db.exec(`
 // Миграции для баз, созданных старыми версиями
 const userCols = db.prepare(`PRAGMA table_info(users)`).all().map((c) => c.name);
 if (!userCols.includes('avatar')) db.exec(`ALTER TABLE users ADD COLUMN avatar TEXT`);
+if (!userCols.includes('rank_override')) db.exec(`ALTER TABLE users ADD COLUMN rank_override TEXT`);
 
 /** Версия коллекции: растёт при любом изменении звуков, клиенты по ней понимают, что пора синхронизироваться. */
 export function bumpVersion() {

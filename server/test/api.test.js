@@ -141,3 +141,37 @@ test('аватарка: загрузка, отдача без токена, уд
   assert.equal((await call('DELETE', '/api/me/avatar', { token })).status, 200);
   assert.equal((await fetch(`${base}/api/avatars/${up.data.avatar}`)).status, 404);
 });
+
+test('звания: правка админом, ручное звание, категории', async () => {
+  const admin = (await call('POST', '/api/login', { body: { username: 'Павел', password: 'pass1' } })).data.token;
+  const friend = (await call('POST', '/api/login', { body: { username: 'друг', password: 'pass1' } }));
+
+  const def = await call('GET', '/api/ranks', { token: friend.data.token });
+  assert.equal(def.data.ranks[0].min, 0);
+
+  assert.equal((await call('PUT', '/api/admin/ranks', { token: friend.data.token, body: { ranks: [] } })).status, 403);
+  assert.equal((await call('PUT', '/api/admin/ranks', { token: admin, body: { ranks: [{ title: '', min: 0 }] } })).status, 400);
+
+  const saved = await call('PUT', '/api/admin/ranks', { token: admin, body: { ranks: [
+    { id: 'pro', title: 'Профи', min: 10, icon: '🔥', style: 'fire' },
+    { title: 'Новенький', min: 3, style: 'нет такого' },
+  ] } });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.data.ranks.map((r) => [r.title, r.min, r.style]), [['Новенький', 0, 'plain'], ['Профи', 10, 'fire']]);
+
+  const uid = friend.data.user.id;
+  assert.equal((await call('PATCH', `/api/admin/users/${uid}`, { token: admin, body: { rankOverride: 'нет' } })).status, 400);
+  assert.equal((await call('PATCH', `/api/admin/users/${uid}`, { token: admin, body: { rankOverride: 'pro' } })).status, 200);
+  let users = (await call('GET', '/api/users', { token: admin })).data.users;
+  assert.equal(users.find((u) => u.id === uid).rankOverride, 'pro');
+
+  // Удалили звание — ручное звание сбросилось
+  await call('PUT', '/api/admin/ranks', { token: admin, body: { ranks: [{ title: 'Все', min: 0 }] } });
+  users = (await call('GET', '/api/users', { token: admin })).data.users;
+  assert.equal(users.find((u) => u.id === uid).rankOverride, null);
+
+  // Категории: переименование со слиянием
+  await call('POST', '/api/admin/categories/rename', { token: admin, body: { from: 'Игры', to: '' } });
+  const sounds = (await call('GET', '/api/sounds', { token: admin })).data.sounds;
+  assert.ok(sounds.every((s) => s.category !== 'Игры'));
+});

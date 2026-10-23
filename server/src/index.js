@@ -12,6 +12,7 @@ import {
   hashPassword, verifyPassword, createSession, userByToken, publicUser,
   randomColor, newInviteCode, requireAuth, requireAdmin,
 } from './auth.js';
+import { getRanks, saveRanks, RANK_STYLES } from './ranks.js';
 import {
   listSounds, getSound, addSound, updateSound, deleteSound, soundFilePath,
   soundRow, scanImportDir, importFromServer,
@@ -112,7 +113,7 @@ const avatarUpload = multer({ storage: multer.memoryStorage(), limits: { fileSiz
 
 // Все участники: нужны клиенту для аватарок и званий у звуков
 app.get('/api/users', requireAuth, (req, res) => {
-  const users = db.prepare(`SELECT id, username, is_admin, color, avatar FROM users ORDER BY id`).all();
+  const users = db.prepare(`SELECT id, username, is_admin, color, avatar, rank_override FROM users ORDER BY id`).all();
   res.json({ users: users.map(publicUser) });
 });
 
@@ -218,7 +219,7 @@ app.delete('/api/sounds/:id', requireAuth, (req, res) => {
 
 app.get('/api/admin/users', requireAdmin, (req, res) => {
   const users = db.prepare(`
-    SELECT u.id, u.username, u.is_admin, u.color, u.avatar, u.created_at,
+    SELECT u.id, u.username, u.is_admin, u.color, u.avatar, u.rank_override, u.created_at,
            (SELECT COUNT(*) FROM sounds s WHERE s.uploaded_by = u.id) AS sounds
     FROM users u ORDER BY u.created_at`).all();
   res.json({ users: users.map((u) => ({ ...publicUser(u), createdAt: u.created_at, sounds: u.sounds, online: onlineUserIds().has(u.id) })) });
@@ -228,7 +229,12 @@ app.patch('/api/admin/users/:id', requireAdmin, wrap((req, res) => {
   const id = Number(req.params.id);
   const u = db.prepare(`SELECT * FROM users WHERE id = ?`).get(id);
   if (!u) return res.status(404).json({ error: 'Пользователь не найден' });
-  const { isAdmin, password } = req.body ?? {};
+  const { isAdmin, password, rankOverride } = req.body ?? {};
+  if (rankOverride !== undefined) {
+    if (rankOverride !== null && !getRanks().some((r) => r.id === rankOverride)) return res.status(400).json({ error: 'Такого звания нет' });
+    db.prepare(`UPDATE users SET rank_override = ? WHERE id = ?`).run(rankOverride, id);
+    broadcastPresence();
+  }
   if (isAdmin !== undefined) {
     if (id === req.user.id && !isAdmin) return res.status(400).json({ error: 'Нельзя снять админку с себя' });
     db.prepare(`UPDATE users SET is_admin = ? WHERE id = ?`).run(isAdmin ? 1 : 0, id);
@@ -283,6 +289,26 @@ app.post('/api/admin/server-import', requireAdmin, wrap((req, res) => {
   res.json(result);
 }));
 
+// Звания: все видят список, менять может только админ
+app.get('/api/ranks', requireAuth, (req, res) => res.json({ ranks: getRanks(), styles: RANK_STYLES }));
+
+app.put('/api/admin/ranks', requireAdmin, wrap((req, res) => {
+  const ranks = saveRanks(req.body?.ranks);
+  // Ручные звания, которых больше нет, сбрасываем
+  const ids = ranks.map((r) => r.id);
+  db.prepare(`UPDATE users SET rank_override = NULL WHERE rank_override IS NOT NULL AND rank_override NOT IN (${ids.map(() => '?').join(',')})`).run(...ids);
+  broadcast({ type: 'ranks' });
+  broadcast({ type: 'users' });
+  res.json({ ranks });
+}));
+
+app.delete('/api/admin/ranks', requireAdmin, (req, res) => {
+  db.prepare(`DELETE FROM meta WHERE key = 'ranks'`).run();
+  broadcast({ type: 'ranks' });
+  res.json({ ranks: getRanks() });
+});
+
+// Переименование категории. Если такая уже есть — категории сольются; пустое имя — убрать категорию у звуков.
 app.post('/api/admin/categories/rename', requireAdmin, wrap((req, res) => {
   const { from, to } = req.body ?? {};
   db.prepare(`UPDATE sounds SET category = ?, updated_at = ? WHERE category = ?`).run(String(to ?? '').trim().slice(0, 40), Date.now(), String(from ?? ''));
@@ -344,7 +370,7 @@ function onlineUserIds() {
 function broadcastPresence() {
   const ids = [...onlineUserIds()];
   const users = ids.length
-    ? db.prepare(`SELECT id, username, color, avatar FROM users WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids)
+    ? db.prepare(`SELECT id, username, color, avatar, rank_override FROM users WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids)
     : [];
   broadcast({ type: 'presence', users });
 }

@@ -1,0 +1,15 @@
+services:
+  soundpad:
+    build: ./server
+    container_name: soundpad
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      # Максимальный размер одного звука, МБ
+      MAX_FILE_MB: "15"
+      # false — загружать звуки может только админ
+      USERS_CAN_UPLOAD: "true"
+    volumes:
+      # Здесь база, звуки и папка import для импорта «с сервера»
+      - ./data:/data

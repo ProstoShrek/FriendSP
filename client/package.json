@@ -1,0 +1,40 @@
+{
+  "name": "soundpad",
+  "productName": "SoundPad",
+  "version": "0.1.0",
+  "description": "Общий саундпад для друзей с синхронизацией",
+  "main": "src/main.js",
+  "author": "SoundPad",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "^37.10.3",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "app.soundpad.client",
+    "productName": "SoundPad",
+    "files": ["src/**/*", "package.json"],
+    "directories": { "buildResources": "build", "output": "dist" },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "SoundPad",
+      "artifactName": "SoundPad-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "SoundPad-Portable-${version}.${ext}"
+    }
+  }
+}

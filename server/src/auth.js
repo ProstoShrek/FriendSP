@@ -26,13 +26,13 @@ export function createSession(userId) {
 export function userByToken(token) {
   if (!token) return null;
   return db.prepare(`
-    SELECT u.id, u.username, u.is_admin, u.color
+    SELECT u.id, u.username, u.is_admin, u.color, u.avatar, u.rank_override
     FROM sessions s JOIN users u ON u.id = s.user_id
     WHERE s.token = ?`).get(token) ?? null;
 }
 
 export function publicUser(u) {
-  return { id: u.id, username: u.username, isAdmin: !!u.is_admin, color: u.color };
+  return { id: u.id, username: u.username, isAdmin: !!u.is_admin, color: u.color, avatar: u.avatar ?? null, rankOverride: u.rank_override ?? null };
 }
 
 const AVATAR_COLORS = ['#5865f2', '#57f287', '#fee75c', '#eb459e', '#ed4245', '#f0b232', '#3ba55c', '#9b59b6', '#1abc9c', '#e67e22'];

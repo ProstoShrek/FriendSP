@@ -110,6 +110,7 @@ export function openUpload(items = null) {
     const panel = uploadPanel(list, { onDone: (r) => { if (!r.errors.length) setTimeout(m.close, 600); } });
     body.replaceChildren(panel.el);
     foot.replaceChildren(...panel.footer);
+    foot.style.display = '';
   };
 
   if (items) return show(items);
@@ -117,5 +118,6 @@ export function openUpload(items = null) {
     h('button', { class: 'btn grow', onclick: async () => show(await native.pickFiles()) }, icon('upload'), 'Выбрать файлы'),
     h('button', { class: 'btn secondary grow', onclick: async () => { const r = await native.pickFolder(); if (r) show(r.files); } }, icon('folder'), 'Выбрать папку')));
   body.append(h('div', { class: 'hint' }, 'Можно просто перетащить файлы или папку в окно. Подпапки станут категориями. Форматы: mp3, wav, ogg, m4a, flac, webm.'));
-  foot.remove();
+  // Футер с кнопкой «Загрузить» появится, когда будут выбраны файлы
+  foot.style.display = 'none';
 }

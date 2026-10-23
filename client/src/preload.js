@@ -26,6 +26,10 @@ contextBridge.exposeInMainWorld('native', {
   uploadFiles: (args) => ipcRenderer.invoke('upload:files', args),
   onUploadProgress: on('upload:progress'),
 
+  appVersion: () => ipcRenderer.invoke('app:version'),
+  onUpdateStatus: on('update:status'),
+  installUpdate: () => ipcRenderer.send('update:install'),
+
   setHotkeys: (map) => ipcRenderer.invoke('hotkeys:set', map),
   onHotkey: on('hotkey'),
 });

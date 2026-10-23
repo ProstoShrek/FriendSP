@@ -7,6 +7,7 @@ export const config = {
   host: process.env.HOST || '0.0.0.0',
   dataDir,
   soundsDir: path.join(dataDir, 'sounds'),
+  avatarsDir: path.join(dataDir, 'avatars'),
   dbPath: path.join(dataDir, 'soundpad.db'),
   // Папка на сервере, из которой админ может импортировать звуки
   importDir: path.resolve(process.env.IMPORT_DIR || path.join(dataDir, 'import')),
